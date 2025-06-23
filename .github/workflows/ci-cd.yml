@@ -1,11 +1,9 @@
-# .github/workflows/ci-cd.yml
-
 name: Churn Prediction CI/CD
 
 on:
   push:
     branches:
-      - dev  # Trigger on pushes to the dev branch
+      - main  # Trigger on pushes to the dev branch
   pull_request:
     branches:
       - main # Trigger on pull requests to the main branch
