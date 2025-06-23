@@ -1,0 +1,11 @@
+# config.json
+
+{
+  "model_name": "churn_model.joblib",
+  "data_path": "data/Churn_Modelling.csv",
+  "train_data_path": "data/train.csv",
+  "test_data_path": "data/test.csv",
+  "model_path": "models/churn_model.joblib",
+  "metric_path": "models/metrics.json",
+  "hf_repo_name": "churn-prediction-model"
+}

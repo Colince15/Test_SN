@@ -1,0 +1,105 @@
+# .github/workflows/ci-cd.yml
+
+name: Churn Prediction CI/CD
+
+on:
+  push:
+    branches:
+      - dev  # Trigger on pushes to the dev branch
+  pull_request:
+    branches:
+      - main # Trigger on pull requests to the main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train model
+        run: python scripts/train.py
+
+      - name: Evaluate model
+        id: evaluate
+        run: |
+          python scripts/evaluate.py
+          # Extract F1 score and make it available to other steps
+          SCORE=$(jq .f1_score models/metrics.json)
+          echo "f1_score=$SCORE" >> $GITHUB_OUTPUT
+
+      - name: Print F1 Score
+        run: echo "The F1 score is ${{ steps.evaluate.outputs.f1_score }}"
+
+      - name: Check F1 Score against threshold
+        id: check_threshold
+        run: |
+          SCORE=${{ steps.evaluate.outputs.f1_score }}
+          THRESHOLD=${{ secrets.THRESHOLD_SCORE }}
+          
+          # Use awk for floating point comparison
+          if $(awk -v score="$SCORE" -v threshold="$THRESHOLD" 'BEGIN {exit !(score > threshold)}'); then
+            echo "✅ Model performance is above the threshold."
+            echo "deployment_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Model performance is below the threshold. Deployment aborted."
+            echo "deployment_status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Hugging Face
+        if: steps.check_threshold.outputs.deployment_status == 'success'
+        run: python scripts/deploy.py
+        env:
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_TOKEN: ${{ secrets.HF_API_KEY }}
+          
+      - name: Send notification email on success
+        if: success() && steps.check_threshold.outputs.deployment_status == 'success'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: '✅ CI/CD Success: Churn Model Deployed'
+          to: ${{ github.actor }}@users.noreply.github.com, ${{ secrets.ADMIN_EMAIL }}
+          from: GitHub Actions <${{ secrets.SMTP_USER }}>
+          body: |
+            The churn prediction model has been successfully trained and deployed to Hugging Face.
+            
+            - **Commit**: ${{ github.sha }}
+            - **Author**: ${{ github.actor }}
+            - **F1 Score**: ${{ steps.evaluate.outputs.f1_score }} (Threshold: ${{ secrets.THRESHOLD_SCORE }})
+            - **Deployment Status**: Accepted and Deployed
+            - **Logs**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send notification email on failure
+        if: failure() || steps.check_threshold.outputs.deployment_status == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: '❌ CI/CD Failure: Churn Model Not Deployed'
+          to: ${{ github.actor }}@users.noreply.github.com, ${{ secrets.ADMIN_EMAIL }}
+          from: GitHub Actions <${{ secrets.SMTP_USER }}>
+          body: |
+            The churn prediction model build failed or did not meet the performance threshold.
+            
+            - **Commit**: ${{ github.sha }}
+            - **Author**: ${{ github.actor }}
+            - **F1 Score**: ${{ steps.evaluate.outputs.f1_score }} (Threshold: ${{ secrets.THRESHOLD_SCORE }})
+            - **Deployment Status**: Rejected
+            - **Logs**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
