@@ -1,5 +1,3 @@
-# config.json
-
 {
   "model_name": "churn_model.joblib",
   "data_path": "data/Churn_Modelling.csv",
